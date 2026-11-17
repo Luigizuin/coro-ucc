@@ -98,13 +98,15 @@ function pintarNav() {
     `<a href="${href}" class="${activo ? 'activo' : ''}">${icono}<span>${txt}</span>${n ? `<span class="cuenta">${n}</span>` : ''}</a>`).join('');
 }
 
+const tieneDe = (o) => [
+  o.pdf ? `<span class="si">${ic.pdf}PDF</span>` : '',
+  o.partitura ? `<span class="si">${ic.nota}Suena</span>` : '',
+  o.pistas?.videos?.length ? `<span class="si">${ic.video}Pistas</span>` : '',
+].join('');
+
 function tarjeta(o) {
   const mini = o.miniUrl ? `style="background-image:url('${o.miniUrl}')"` : '';
-  const tiene = [
-    o.pdf ? `<span class="si">${ic.pdf}PDF</span>` : '',
-    o.partitura ? `<span class="si">${ic.nota}Suena</span>` : '',
-    o.pistas?.videos?.length ? `<span class="si">${ic.video}Pistas</span>` : '',
-  ].join('');
+  const tiene = tieneDe(o);
   return `<article class="tarjeta">
     <a class="cuerpo" href="#/obra/${o.slug}">
       <div class="mini" ${mini}>${o.miniUrl ? '' : ic.nota}</div>
@@ -114,11 +116,32 @@ function tarjeta(o) {
   </article>`;
 }
 
+// La Biblioteca es una lista alfabética por título, con una letra de separador (pedido de Luigi, 16/11/2026)
+function fila(o) {
+  return `<li class="fila">
+    <a class="fila-cuerpo" href="#/obra/${o.slug}">
+      <span class="fila-titulo">${esc(o.titulo)}</span>
+      <span class="fila-autor">${esc(autorDe(o))}</span>
+      <span class="tiene">${tieneDe(o)}</span>
+    </a>
+    <span class="fila-lado">${sello(o)}${botonRep(o)}</span>
+  </li>`;
+}
+function listaAlfabetica(lista) {
+  let letra = '', html = '';
+  for (const o of lista) {
+    const l = (norm(o.titulo).match(/[a-z0-9]/) || ['#'])[0].toUpperCase();
+    if (l !== letra) { if (letra) html += '</ul>'; letra = l; html += `<h2 class="letra">${l}</h2><ul class="lista-obras">`; }
+    html += fila(o);
+  }
+  return html + (letra ? '</ul>' : '');
+}
+
 function verBiblioteca() {
   const chips = [['todas', 'Todas'], ['suenan', 'Suenan'], ['pistas', 'Con pistas'], ['pdf', 'Con PDF']];
   vista.innerHTML = `
     <div class="titulo-seccion">
-      <div><h1>Biblioteca</h1><p class="sub">Todas las obras del coro: ${obras.length}.</p></div>
+      <div><h1>Biblioteca</h1><p class="sub">Todas las obras del coro, por orden alfabético: ${obras.length}.</p></div>
       <label class="buscador">${ic.buscar}<input id="buscar" type="search" placeholder="Buscar por título o compositor" value="${esc(filtros.texto)}" autocomplete="off"></label>
     </div>
     <div class="filtros">${chips.map(([k, t]) => `<button class="chip ${filtros.tipo === k ? 'activo' : ''}" data-filtro="${k}">${t}</button>`).join('')}</div>
@@ -132,7 +155,7 @@ function verBiblioteca() {
       if (filtros.tipo === 'pdf') return !!o.pdf;
       return true;
     });
-    $('#lista').innerHTML = lista.length ? `<div class="grilla">${lista.map(tarjeta).join('')}</div>`
+    $('#lista').innerHTML = lista.length ? listaAlfabetica(lista)
       : `<div class="vacio">${ic.buscar}<h2>No hay obras con esa búsqueda</h2><p>Probá con otra palabra o sacá el filtro.</p></div>`;
   };
   $('#buscar').addEventListener('input', (e) => { filtros.texto = e.target.value; pintar(); });
@@ -168,8 +191,9 @@ async function verObra(slug) {
     o.poeta && `Texto: ${esc(o.poeta)}`, o.voces && `Voces: ${esc(o.voces)}`, o.idioma && `Idioma: ${esc(o.idioma)}`,
     o.pdf?.paginas && `${o.pdf.paginas} páginas`, o.pdf?.tipo && o.pdf.tipo !== 'sin analizar' && `PDF ${o.pdf.tipo === 'escaneo' ? 'escaneado' : 'digital'}`,
   ].filter(Boolean).map((x) => `<span>${x}</span>`).join('');
-  const conv = o.partitura ? `<details class="estado-conv"><summary>${sello(o)}<span>${esc(o.partitura.resumen || '')}</span><span class="mas">Cómo salió</span></summary>
-      <ul>${(o.partitura.detalles || []).map((d) => `<li>${esc(d)}</li>`).join('')}</ul></details>` : '';
+  const detalles = o.partitura?.detalles || [];
+  const conv = !o.partitura ? '' : !detalles.length ? `<div class="estado-conv"><div class="linea">${sello(o)}<span>${esc(o.partitura.resumen || '')}</span></div></div>` : `<details class="estado-conv"><summary>${sello(o)}<span>${esc(o.partitura.resumen || '')}</span><span class="mas">Cómo salió</span></summary>
+      <ul>${detalles.map((d) => `<li>${esc(d)}</li>`).join('')}</ul></details>`;
   vista.innerHTML = `
     <a class="volver" href="#/">${ic.atras}Biblioteca</a>
     <div class="ficha">

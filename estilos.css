@@ -220,3 +220,25 @@ h1 { font-size: 2rem; }
 .form.entrada { margin: 8vh auto 0; max-width: 440px; }
 .form.entrada h1 { margin: 0 0 6px; }
 .btn-rep.fijo { cursor: default; }
+
+/* Biblioteca: lista alfabética */
+.letra { font-size: .95rem; font-weight: 700; color: var(--primario); margin: 22px 0 6px; padding: 0 4px; letter-spacing: .04em; }
+.letra:first-child { margin-top: 0; }
+.lista-obras { list-style: none; margin: 0; padding: 0; background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); box-shadow: var(--sombra); overflow: hidden; }
+.fila { display: flex; align-items: center; gap: 12px; padding-right: 14px; border-top: 1px solid var(--borde); }
+.fila:first-child { border-top: 0; }
+.fila:hover { background: var(--superficie-2); }
+.fila-cuerpo { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 196px; align-items: center; gap: 4px 16px; padding: 12px 0 12px 16px; text-decoration: none; color: inherit; }
+.fila-titulo { font-weight: 600; }
+.fila-autor { color: var(--texto-suave); font-size: .92rem; }
+.fila .tiene { margin-top: 0; flex-wrap: nowrap; }
+.fila-lado { display: grid; grid-template-columns: 178px auto; align-items: center; justify-items: start; gap: 8px; flex: none; }
+.fila-lado .btn-rep { justify-self: end; min-width: 118px; justify-content: center; }
+.estado-conv .linea { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .fila { flex-wrap: wrap; gap: 6px; padding: 0 12px 10px 0; }
+  .fila-cuerpo { grid-template-columns: 1fr; flex-basis: 100%; padding: 10px 0 0 14px; }
+  .fila .tiene { flex-wrap: wrap; }
+  .fila-lado { padding-left: 14px; display: flex; flex-wrap: wrap; }
+  .fila-lado .btn-rep { min-width: 0; }
+}
