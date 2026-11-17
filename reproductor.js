@@ -1,0 +1,207 @@
+// Reproductor de partituras: Verovio dibuja el MusicXML y da el tiempo de cada nota; MotorAudio lo hace sonar.
+// Al elegir una voz suena solo esa, sus notas quedan resaltadas (las demás, atenuadas) y el cursor marca solo esa voz.
+// Basado en la prueba Co1 (pruebas/reproductor/verovio.html).
+import { MotorAudio } from './motor-audio.js';
+import { escribirMidi } from './midi.js';
+
+export const COLORES = ['#c0392b', '#2471a3', '#1e8449', '#b9770e', '#7d3c98', '#117a65', '#a04000', '#2e4053'];
+
+let verovioListo = null;
+function cargarVerovio() {
+  if (!verovioListo) {
+    verovioListo = new Promise((ok, mal) => {
+      const s = document.createElement('script');
+      s.src = 'lib/verovio/dist/verovio-toolkit-wasm.js';
+      s.onload = () => { verovio.module.onRuntimeInitialized = () => ok(new verovio.toolkit()); };
+      s.onerror = () => mal(new Error('No se pudo cargar el motor de partituras.'));
+      document.head.appendChild(s);
+    });
+  }
+  return verovioListo;
+}
+
+function scrollPadre(el) {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+  }
+  return null;
+}
+
+export class Reproductor {
+  constructor(contenedor) {
+    this.cont = contenedor;
+    this.audio = new MotorAudio();
+    this.notas = [];          // { id, ms, durMs, nota, voz }
+    this.voces = [];          // { id, nombre, color }
+    this.capas = {};          // id de capa (layer) en el dibujo → voz
+    this.encendidas = new Set();
+    this.seleccion = null;    // null = todas las voces
+    this.vivo = true;
+    this.audio.alTerminar = () => this.alTerminar && this.alTerminar();
+    this.cont.addEventListener('click', (e) => {
+      const g = e.target.closest('g.note');
+      const n = g && this.notas.find((x) => x.id === g.id);
+      if (n) this.audio.ir(n.ms);
+    });
+    this._cursor();
+    let espera;
+    this._resize = () => { clearTimeout(espera); espera = setTimeout(() => this.tk && this.notas.length && this.dibujar(), 300); };
+    window.addEventListener('resize', this._resize);
+  }
+
+  async cargar(url) {
+    this.tk = await cargarVerovio();
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('No se encontró la partitura digital.');
+    const ok = /\.mxl$/i.test(url) ? this.tk.loadZipDataBuffer(await resp.arrayBuffer()) : this.tk.loadData(await resp.text());
+    if (!ok) throw new Error('El motor no pudo leer la partitura.');
+    this.tk.setOptions({ header: 'none', footer: 'none' });
+    const { voces, vozDeNota } = this._leerVoces();
+    this.voces = voces;
+    const notas = [];
+    for (const paso of this.tk.renderToTimemap()) {
+      for (const id of paso.on || []) {
+        const m = this.tk.getMIDIValuesForElement(id);
+        if (!m || !vozDeNota[id]) continue;
+        notas.push({ id, ms: m.time, durMs: m.duration, nota: m.pitch, vel: 80, voz: vozDeNota[id] });
+      }
+    }
+    this.notas = notas;
+    this.audio.cargarNotas(notas, voces);
+    this.dibujar();
+    return voces;
+  }
+
+  dibujar() {
+    const ancho = this.cont.clientWidth || 800;
+    const escala = ancho < 600 ? 30 : 40;
+    this.tk.setOptions({
+      scale: escala, pageWidth: Math.max(500, Math.floor((ancho * 100) / escala)), adjustPageHeight: true,
+      breaks: 'auto', header: 'none', footer: 'none', pageMarginLeft: 30, pageMarginRight: 30, pageMarginTop: 30, pageMarginBottom: 30,
+      lyricSize: 4.5,
+    });
+    this.tk.redoLayout();
+    let svg = '';
+    for (let p = 1; p <= this.tk.getPageCount(); p++) svg += this.tk.renderToSVG(p);
+    this.cont.innerHTML = svg;
+    this.encendidas = new Set();
+    this._marcarApagadas();
+  }
+
+  // Qué voz es cada nota: se lee del MEI (formato interno de Verovio): pentagrama (staff) + capa (layer).
+  // Si un pentagrama tiene una segunda capa chica (un divisi de pocos compases), se cuenta como la misma voz.
+  _leerVoces() {
+    const mei = new DOMParser().parseFromString(this.tk.getMEI(), 'application/xml');
+    const nombres = {};
+    for (const sd of mei.getElementsByTagName('staffDef')) {
+      const n = sd.getAttribute('n');
+      const lab = sd.getElementsByTagName('label')[0];
+      if (lab && lab.textContent.trim()) nombres[n] = lab.textContent.trim();
+    }
+    // nombres puestos en el grupo (staffGrp) cuando el pentagrama no tiene el suyo
+    for (const sg of mei.getElementsByTagName('staffGrp')) {
+      const lab = [...sg.children].find((c) => c.tagName === 'label');
+      const sds = [...sg.children].filter((c) => c.tagName === 'staffDef');
+      if (lab && sds.length === 1 && !nombres[sds[0].getAttribute('n')]) nombres[sds[0].getAttribute('n')] = lab.textContent.trim();
+    }
+    const cuenta = {}; const capasDeNota = {}; const capasPorId = {};
+    for (const layer of mei.getElementsByTagName('layer')) {
+      let el = layer, staff = null;
+      while ((el = el.parentNode) && el.tagName) if (el.tagName === 'staff') { staff = el.getAttribute('n'); break; }
+      if (!staff) continue;
+      const clave = `${staff}-${layer.getAttribute('n') || '1'}`;
+      capasPorId[layer.getAttribute('xml:id')] = clave;
+      for (const nota of layer.getElementsByTagName('note')) {
+        capasDeNota[nota.getAttribute('xml:id')] = clave;
+        cuenta[clave] = (cuenta[clave] || 0) + 1;
+      }
+    }
+    // decidir qué capas son voces propias
+    const porStaff = {};
+    for (const clave of Object.keys(cuenta)) { const [s] = clave.split('-'); (porStaff[s] ||= []).push(clave); }
+    const destino = {};
+    const voces = [];
+    for (const s of Object.keys(porStaff).sort((a, b) => a - b)) {
+      const capas = porStaff[s].sort((a, b) => a.split('-')[1] - b.split('-')[1]);
+      const total = capas.reduce((t, c) => t + cuenta[c], 0);
+      const propias = capas.filter((c, i) => i === 0 || cuenta[c] / total > 0.15);
+      for (const c of capas) destino[c] = propias.includes(c) ? c : propias[0];
+      propias.forEach((c, i) => {
+        const base = nombres[s] || `Voz ${s}`;
+        const extra = propias.length > 1 ? (i === 0 ? ' (arriba)' : ' (abajo)') : '';
+        voces.push({ id: c, nombre: base + extra });
+      });
+    }
+    voces.forEach((v, i) => (v.color = COLORES[i % COLORES.length]));
+    const vozDeNota = {};
+    for (const [id, c] of Object.entries(capasDeNota)) vozDeNota[id] = destino[c];
+    this.capas = {};
+    for (const [id, c] of Object.entries(capasPorId)) this.capas[id] = destino[c] || c;
+    return { voces, vozDeNota };
+  }
+
+  _marcarApagadas() {
+    for (const [id, voz] of Object.entries(this.capas)) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('apagada', this.seleccion != null && voz !== this.seleccion);
+    }
+  }
+
+  elegirVoz(id) {
+    this.seleccion = id;
+    this.audio.soloUna(id);
+    this._marcarApagadas();
+    for (const nid of this.encendidas) document.getElementById(nid)?.classList.remove('sonando');
+    this.encendidas = new Set();
+  }
+
+  // Marca las notas que suenan (solo las de la voz elegida) y sigue la partitura.
+  _cursor() {
+    if (!this.vivo) return;
+    if (this.notas.length) {
+      const t = this.audio.posicion();
+      const ahora = new Set();
+      if (this.audio.sonando() || t > 0) {
+        for (const n of this.notas) {
+          if (t >= n.ms && t < n.ms + n.durMs && (this.seleccion == null || n.voz === this.seleccion)) ahora.add(n.id);
+        }
+      }
+      let nueva = null;
+      for (const id of this.encendidas) if (!ahora.has(id)) document.getElementById(id)?.classList.remove('sonando');
+      for (const id of ahora) if (!this.encendidas.has(id)) { const el = document.getElementById(id); el?.classList.add('sonando'); nueva = nueva || el; }
+      this.encendidas = ahora;
+      if (nueva && this.audio.sonando()) this._seguir(nueva);
+    }
+    requestAnimationFrame(() => this._cursor());
+  }
+
+  _seguir(el) {
+    const r = el.getBoundingClientRect();
+    const padre = scrollPadre(this.cont);
+    if (padre) {
+      const pr = padre.getBoundingClientRect();
+      if (r.top < pr.top + 30 || r.bottom > pr.bottom - 30) padre.scrollBy({ top: r.top - pr.top - pr.height * 0.25, behavior: 'smooth' });
+    } else {
+      const arriba = (document.querySelector('.cabecera')?.offsetHeight || 0) + 20;
+      const abajo = window.innerHeight - (document.querySelector('.reproductor')?.offsetHeight || 0) - 30;
+      if (r.top < arriba || r.bottom > abajo) window.scrollBy({ top: r.top - arriba - (abajo - arriba) * 0.2, behavior: 'smooth' });
+    }
+  }
+
+  // MIDI de una voz (o de todas). Tempo fijo de 120 por minuto: 1 ms = 0,96 ticks (480 ticks por negra).
+  midi(idVoz) {
+    const voces = idVoz ? this.voces.filter((v) => v.id === idVoz) : this.voces;
+    const pistas = voces.map((v, i) => ({
+      nombre: v.nombre, canal: i % 16 === 9 ? 10 : i % 16, programa: 52,
+      notas: this.notas.filter((n) => n.voz === v.id).map((n) => ({ tick: n.ms * 0.96, dur: n.durMs * 0.96, nota: n.nota, vel: n.vel })),
+    }));
+    return escribirMidi(pistas);
+  }
+
+  destruir() {
+    this.vivo = false;
+    window.removeEventListener('resize', this._resize);
+    this.audio.cerrar();
+  }
+}
