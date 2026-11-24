@@ -323,10 +323,9 @@ function armarDock(rep, voces, o, donde) {
       <button class="play" id="play" aria-label="Reproducir" title="Reproducir (barra espaciadora)">${ic.play}</button>
       <button class="tecla" id="inicio" aria-label="Volver al principio" title="Volver al principio">${ic.inicio}</button>
     </div>
-    <div class="lcd">
-      <div class="datos"><span class="grande" id="tAct">0:00</span><span class="tot">/ ${mmss(dur)}</span>${rep.compases ? `<span>c. <b id="compas">1</b> de ${rep.compases}</span>` : ''}${rep.tempo ? `<span class="der">♩ = <b id="tempo">${rep.tempo}</b></span>` : ''}</div>
-      <div class="mapa" id="mapa" tabindex="0" role="slider" aria-label="Posición en la obra" aria-valuemin="0" aria-valuemax="${Math.round(dur / 1000)}">${mapaSvg(rep, voces, dur)}<span class="cabezal" id="cabezal"></span></div>
-    </div>
+    <div class="mezcla">
+    <span class="titulo-mezcla">Voces, velocidad y volumen</span>
+    <div class="mezcla-fila">
     <div class="canales">${voces.map((v, i) => `<div class="canal" data-canal="${esc(v.id)}" style="--c-voz:${v.color}">
       <input class="fader" type="range" min="0" max="100" value="100" data-fader="${esc(v.id)}" aria-label="Volumen de ${esc(v.nombre)}" title="Volumen de ${esc(v.nombre)}">
       <span class="nom"><i></i>${esc(v.nombre)}</span>
@@ -337,6 +336,12 @@ function armarDock(rep, voces, o, donde) {
       <div class="fila-teclas" role="group" aria-label="Velocidad">${VELOCIDADES.map((v) => `<button class="tecla" data-vel="${v}" aria-pressed="${v === 100}" title="${v === 100 ? 'Velocidad normal' : `Al ${v} %`}">${v}</button>`).join('')}</div>
       <span class="rot">Sonido</span>
       <div class="fila-teclas" role="group" aria-label="Sonido">${sonidos.map(([k, t, ayuda]) => `<button class="tecla" data-sonido="${k}" aria-pressed="${k === a.instr}" title="${ayuda}">${t}</button>`).join('')}</div>
+    </div>
+    </div>
+    </div>
+    <div class="lcd">
+      <div class="datos"><span class="grande" id="tAct">0:00</span><span class="tot">/ ${mmss(dur)}</span>${rep.compases ? `<span>c. <b id="compas">1</b> de ${rep.compases}</span>` : ''}${rep.tempo ? `<span class="der">♩ = <b id="tempo">${rep.tempo}</b></span>` : ''}</div>
+      <div class="mapa" id="mapa" tabindex="0" role="slider" aria-label="Posición en la obra" aria-valuemin="0" aria-valuemax="${Math.round(dur / 1000)}">${mapaSvg(rep, voces, dur)}<span class="cabezal" id="cabezal"></span></div>
     </div>`;
   donde.prepend(dock);
   const medirDock = new ResizeObserver(() => document.documentElement.style.setProperty('--alto-dock', `${dock.offsetHeight}px`));
@@ -423,17 +428,18 @@ function mapaSvg(rep, voces, dur) {
   const grupos = voces.map((v, i) => {
     const propias = rep.notas.filter((x) => x.voz === v.id);
     const alt = propias.map((x) => x.nota);
-    const lo = Math.min(...alt), hi = Math.max(...alt), top = i * (H + G), alto1 = Math.min(3, H - 1);
+    const lo = Math.min(...alt), hi = Math.max(...alt), top = i * (H + G), alto1 = Math.min(4.5, H - 1);
     const rects = propias.map((x) => {
       const px = (x.ms / dur) * W, w = Math.max((x.durMs / dur) * W - .8, 1.6);
       const y = top + (hi === lo ? (H - alto1) / 2 : (1 - (x.nota - lo) / (hi - lo)) * (H - alto1));
       return `<rect x="${px.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${alto1}"/>`;
     }).join('');
-    return `<g data-voz="${esc(v.id)}" fill="${v.lcd}">${rects}</g>`;
+    return `<g data-voz="${esc(v.id)}" style="--c-lcd:${v.lcd};--c-luz:${v.luz}">${rects}</g>`;
   }).join('');
+  // dos capas iguales: la de base se ve entera (la estructura de la obra) y la de arriba, recortada hasta el cabezal, se enciende
   return `<svg viewBox="0 0 ${W} ${alto}" preserveAspectRatio="none" aria-hidden="true">
     <defs><clipPath id="clip-mapa-def"><rect id="clip-mapa" x="0" y="0" width="0" height="${alto}"/></clipPath></defs>
-    <g class="base">${grupos}</g><g clip-path="url(#clip-mapa-def)">${grupos}</g></svg>`;
+    <g class="base">${grupos}</g><g class="encendida" clip-path="url(#clip-mapa-def)">${grupos}</g></svg>`;
 }
 
 // Los enlaces a archivos de datos (bajar o abrir el PDF) se completan acá: en la versión publicada hay que descifrarlos antes.

@@ -6,7 +6,8 @@ import { escribirMidi } from './midi.js';
 
 // Un tono por voz (rueda de color OKLCH): soprano rojo, contralto ocre, tenor verde, bajo azul y, si hay más, violeta, turquesa, naranja, índigo.
 export const TONOS = [0, 75, 150, 245, 320, 195, 40, 280];
-const colorVoz = (h) => ({ color: `oklch(.6 .17 ${h})`, lcd: `oklch(.78 .15 ${h})`, nota: `oklch(.55 .2 ${h})` });
+// lcd = la nota en el mapa (sobre negro); luz = la nota ya escuchada, encendida
+const colorVoz = (h) => ({ color: `oklch(.6 .17 ${h})`, lcd: `oklch(.74 .14 ${h})`, luz: `oklch(.9 .16 ${h})`, nota: `oklch(.55 .2 ${h})` });
 
 let verovioListo = null;
 function cargarVerovio() {
@@ -37,6 +38,7 @@ export class Reproductor {
     this.notas = [];          // { id, ms, durMs, nota, voz }
     this.voces = [];          // { id, nombre, color }
     this.capas = {};          // id de capa (layer) en el dibujo → voz
+    this.arcos = {};          // id de ligadura o arco en el dibujo → voz
     this.encendidas = new Set();
     this.seleccion = null;    // voz que se escucha sola (null = todas)
     this.compases = 0;        // cantidad de compases (para la pantalla del reproductor)
@@ -65,10 +67,15 @@ export class Reproductor {
     this.voces = voces;
     const notas = [];
     this.inicios = []; // { ms, n }: cuándo empieza cada compás (para mostrar el compás aunque haya silencio)
+    // En la segunda vuelta de una repetición, Verovio nombra cada nota y compás con «-rend2» al final:
+    // se le saca para saber de qué voz es y qué nota encender en el dibujo (antes esas notas se perdían y la vuelta no sonaba).
+    const base = (id) => id.replace(/-rend\d+$/, '');
     for (const paso of this.tk.renderToTimemap({ includeMeasures: true })) {
-      if (paso.measureOn && this.numeroDe[paso.measureOn]) this.inicios.push({ ms: paso.tstamp, n: this.numeroDe[paso.measureOn] });
-      for (const id of paso.on || []) {
-        const m = this.tk.getMIDIValuesForElement(id);
+      const mOn = paso.measureOn && this.numeroDe[base(paso.measureOn)];
+      if (mOn) this.inicios.push({ ms: paso.tstamp, n: mOn });
+      for (const idVuelta of paso.on || []) {
+        const id = base(idVuelta);
+        const m = this.tk.getMIDIValuesForElement(idVuelta);
         if (!m || !vozDeNota[id]) continue;
         notas.push({ id, ms: m.time, durMs: m.duration, nota: m.pitch, vel: 80, voz: vozDeNota[id], compas: this.compasDe[id] || 0 });
       }
@@ -131,13 +138,14 @@ export class Reproductor {
       }
       if (this.tempo) break;
     }
-    const cuenta = {}; const capasDeNota = {}; const capasPorId = {};
+    const cuenta = {}; const capasDeNota = {}; const capasPorId = {}; const capaDeElem = {};
     for (const layer of mei.getElementsByTagName('layer')) {
       let el = layer, staff = null;
       while ((el = el.parentNode) && el.tagName) if (el.tagName === 'staff') { staff = el.getAttribute('n'); break; }
       if (!staff) continue;
       const clave = `${staff}-${layer.getAttribute('n') || '1'}`;
       capasPorId[layer.getAttribute('xml:id')] = clave;
+      for (const el of layer.getElementsByTagName('*')) { const id = el.getAttribute('xml:id'); if (id) capaDeElem[id] = clave; }
       for (const nota of layer.getElementsByTagName('note')) {
         capasDeNota[nota.getAttribute('xml:id')] = clave;
         cuenta[clave] = (cuenta[clave] || 0) + 1;
@@ -164,15 +172,26 @@ export class Reproductor {
     for (const [id, c] of Object.entries(capasDeNota)) vozDeNota[id] = destino[c];
     this.capas = {};
     for (const [id, c] of Object.entries(capasPorId)) this.capas[id] = destino[c] || c;
+    // cada arco es de la voz de la nota (o acorde) donde empieza
+    this.arcos = {};
+    for (const tipo of ['slur', 'tie', 'phrase']) {
+      for (const arco of mei.getElementsByTagName(tipo)) {
+        const c = capaDeElem[(arco.getAttribute('startid') || '').replace(/^#/, '')];
+        if (c) this.arcos[arco.getAttribute('xml:id')] = destino[c] || c;
+      }
+    }
     return { voces, vozDeNota };
   }
 
   // Una voz que no se oye (silenciada, en volumen cero o tapada por un "solo") queda atenuada en la partitura.
   seOye(id) { const v = this.audio.voces.get(id); return this.audio.esAudible(id) && (!v || v.vol > 0); }
   _marcarApagadas() {
-    for (const [id, voz] of Object.entries(this.capas)) {
-      const el = document.getElementById(id);
-      if (el) el.classList.toggle('apagada', !this.seOye(voz));
+    // capas (notas, plicas, letra) y arcos (ligaduras y ligaduras de expresión, que Verovio dibuja fuera de la capa)
+    for (const mapa of [this.capas, this.arcos]) {
+      for (const [id, voz] of Object.entries(mapa)) {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('apagada', !this.seOye(voz));
+      }
     }
     for (const nid of this.encendidas) document.getElementById(nid)?.classList.remove('sonando');
     this.encendidas = new Set();

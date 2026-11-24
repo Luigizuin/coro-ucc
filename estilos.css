@@ -178,8 +178,8 @@ main { padding: 0 0 48px; }
 #partitura { min-height: 220px; }
 #partitura svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
 #partitura g.note { cursor: pointer; }
-#partitura g.layer { transition: opacity .25s ease-out; }
-#partitura g.layer.apagada { opacity: .16; }
+#partitura g.layer, #partitura g.slur, #partitura g.tie, #partitura g.phrase { transition: opacity .25s ease-out; }
+#partitura g.apagada { opacity: .16; }
 #partitura g.note.sonando, #partitura g.note.sonando * { fill: var(--vc, var(--senal)) !important; stroke: var(--vc, var(--senal)) !important; }
 .lado-a-lado { display: grid; gap: 14px; }
 .lado-a-lado.comparar { grid-template-columns: 1fr 1fr; }
@@ -207,7 +207,7 @@ main { padding: 0 0 48px; }
 .pista .info small { color: var(--texto-2); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Reproductor: el aparato pegado arriba de la partitura (baja con ella, debajo de la barra fija) ---------- */
-.dock { position: sticky; top: calc(var(--alto-cab, 60px) + 8px); z-index: 20; margin-bottom: 14px; display: grid; grid-template-columns: auto minmax(200px, 1fr) auto auto; grid-template-areas: "trans lcd canales ajustes";
+.dock { position: sticky; top: calc(var(--alto-cab, 60px) + 8px); z-index: 20; margin-bottom: 14px; display: grid; grid-template-columns: auto auto minmax(220px, 1fr); grid-template-areas: "trans mezcla lcd";
   gap: 10px; align-items: stretch; padding: 10px; border-radius: 18px; background: linear-gradient(oklch(.955 0 0), oklch(.92 0 0)); box-shadow: var(--sombra-aparato); }
 .transporte { grid-area: trans; display: flex; gap: 6px; }
 .play { width: 64px; min-height: 64px; border-radius: 14px; border: 0; background: var(--senal); color: var(--sobre-senal); display: grid; place-items: center;
@@ -228,8 +228,15 @@ main { padding: 0 0 48px; }
 .mapa { position: relative; min-height: 30px; cursor: pointer; touch-action: none; }
 .mapa svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .mapa .cabezal { position: absolute; top: -3px; bottom: -3px; width: 2px; left: 0; background: var(--senal); pointer-events: none; }
-.mapa .base { opacity: .32; }
-.mapa g.fuera { opacity: .25; }
+/* lo que falta sonar se ve claro (la estructura de la obra); lo ya escuchado, encendido con un halo */
+.mapa g[data-voz] { fill: var(--c-lcd); transition: opacity .2s; }
+.mapa .base { opacity: .7; }
+.mapa .encendida g[data-voz] { fill: var(--c-luz); filter: drop-shadow(0 0 1.5px var(--c-luz)); }
+.mapa g.fuera { opacity: .3; }
+/* voces, velocidad y volumen: a la izquierda de la pantalla, con su rótulo arriba */
+.mezcla { grid-area: mezcla; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.titulo-mezcla { font: 500 11px/1 var(--mono); color: var(--texto-2); text-transform: uppercase; letter-spacing: .06em; padding-left: 4px; }
+.mezcla-fila { display: flex; gap: 10px; align-items: stretch; flex: 1; min-width: 0; }
 .mapa:focus-visible { outline-offset: 4px; }
 /* un canal por voz: fader, nombre, escuchar solo y silenciar */
 .canales { grid-area: canales; display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -294,7 +301,8 @@ dialog.paleta::backdrop { background: oklch(0 0 0 / .35); }
 @media (max-width: 1400px) { .lcd .der { display: none; } }
 @media (max-width: 1180px) {
   /* tablet: el aparato en dos filas bajas; los faders quedan para pantallas anchas */
-  .dock { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "trans lcd ajustes" "canales canales canales"; }
+  .dock { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "trans lcd" "mezcla mezcla"; }
+  .canales { flex: 1; }
   .fader { display: none; }
   .canal { flex: 1 0 auto; grid-template-columns: auto auto; grid-template-rows: auto; justify-content: center; gap: 10px; padding: 5px 8px; }
 }
@@ -332,7 +340,8 @@ dialog.paleta::backdrop { background: oklch(0 0 0 / .35); }
   .hoja { padding: 10px 0; }
   .panel { padding: 0 8px; }
   .lado-a-lado.comparar { grid-template-columns: 1fr; }
-  .dock { top: calc(var(--alto-cab, 56px) + 6px); padding: 8px; gap: 6px; border-radius: 16px; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "trans lcd" "canales canales" "ajustes ajustes"; }
+  .dock { top: calc(var(--alto-cab, 56px) + 6px); padding: 8px; gap: 6px; border-radius: 16px; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "trans lcd" "mezcla mezcla"; }
+  .mezcla-fila { flex-direction: column; gap: 6px; }
   .transporte .tecla { display: none; }
   .play { width: 56px; min-height: 56px; }
   .lcd { padding: 6px 10px; gap: 4px; }
