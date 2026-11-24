@@ -247,6 +247,11 @@ async function verObra(slug) {
 
 function pintarReproductor(rep, voces, o) {
   const caja = $('#reproductor');
+  const cantada = o.partitura?.cantada?.voces;
+  if (cantada) {
+    rep.audio.cargarCantada(cantada, bytesDe);
+    rep.audio.instr = 'letra'; // si la obra tiene voces cantadas, arranca con ese sonido
+  }
   const vozActual = () => voces.find((v) => v.id === rep.seleccion);
   caja.innerHTML = `<div class="rep-grilla">
       <button class="btn-play" id="play" title="Reproducir (barra espaciadora)">${ic.play}</button>
@@ -258,7 +263,7 @@ function pintarReproductor(rep, voces, o) {
         ${voces.map((v) => `<button class="voz" data-voz="${v.id}"><i style="background:${v.color}"></i>${esc(v.nombre)}</button>`).join('')}
       </div>
       <div class="derecha">
-        <select class="select-mini" id="instr" title="Sonido"><option value="coro">Sonido: coro</option><option value="piano">Sonido: piano</option></select>
+        <select class="select-mini" id="instr" title="Sonido">${cantada ? `<option value="letra" selected title="${voces.every((v) => cantada[v.id]) ? 'Cada voz canta su letra' : 'Las voces con audio cantado cantan la letra; las demás, con el coro'}">Sonido: voz con letra</option>` : ''}<option value="coro">Sonido: coro</option><option value="piano">Sonido: piano</option></select>
         <button class="btn" id="midi" title="Bajar el MIDI de lo que se está escuchando">${ic.bajar}<span id="midiTxt">MIDI de todas</span></button>
       </div>
     </div>`;
