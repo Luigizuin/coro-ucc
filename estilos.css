@@ -61,6 +61,7 @@ h1, h2, h3 { margin: 0; font-family: var(--titulos); }
 .marca { font: 700 18px/1 var(--titulos); letter-spacing: -.02em; margin-right: 18px; text-decoration: none; display: flex; gap: 8px; align-items: center; white-space: nowrap; flex: none; }
 .marca i { width: 10px; height: 10px; border-radius: 50%; background: var(--senal); }
 .nav { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: oklch(.89 0 0); box-shadow: 0 1px 2px oklch(0 0 0 / .16) inset, 0 1px 0 oklch(1 0 0); }
+.nav:empty { display: none; }
 .nav .tecla { height: 34px; box-shadow: none; background: transparent; }
 .nav .tecla:hover { background: oklch(.94 0 0); }
 .nav .tecla[aria-current] { background: var(--tecla); box-shadow: var(--sombra-tecla); }
