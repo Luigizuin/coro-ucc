@@ -4,7 +4,9 @@
 import { MotorAudio } from './motor-audio.js';
 import { escribirMidi } from './midi.js';
 
-export const COLORES = ['#c0392b', '#2471a3', '#1e8449', '#b9770e', '#7d3c98', '#117a65', '#a04000', '#2e4053'];
+// Un tono por voz (rueda de color OKLCH): soprano rojo, contralto ocre, tenor verde, bajo azul y, si hay más, violeta, turquesa, naranja, índigo.
+export const TONOS = [0, 75, 150, 245, 320, 195, 40, 280];
+const colorVoz = (h) => ({ color: `oklch(.6 .17 ${h})`, lcd: `oklch(.78 .15 ${h})`, nota: `oklch(.55 .2 ${h})` });
 
 let verovioListo = null;
 function cargarVerovio() {
@@ -36,7 +38,9 @@ export class Reproductor {
     this.voces = [];          // { id, nombre, color }
     this.capas = {};          // id de capa (layer) en el dibujo → voz
     this.encendidas = new Set();
-    this.seleccion = null;    // null = todas las voces
+    this.seleccion = null;    // voz que se escucha sola (null = todas)
+    this.compases = 0;        // cantidad de compases (para la pantalla del reproductor)
+    this.tempo = null;        // negras por minuto, si la partitura lo dice
     this.vivo = true;
     this.audio.alTerminar = () => this.alTerminar && this.alTerminar();
     this.cont.addEventListener('click', (e) => {
@@ -60,11 +64,13 @@ export class Reproductor {
     const { voces, vozDeNota } = this._leerVoces();
     this.voces = voces;
     const notas = [];
-    for (const paso of this.tk.renderToTimemap()) {
+    this.inicios = []; // { ms, n }: cuándo empieza cada compás (para mostrar el compás aunque haya silencio)
+    for (const paso of this.tk.renderToTimemap({ includeMeasures: true })) {
+      if (paso.measureOn && this.numeroDe[paso.measureOn]) this.inicios.push({ ms: paso.tstamp, n: this.numeroDe[paso.measureOn] });
       for (const id of paso.on || []) {
         const m = this.tk.getMIDIValuesForElement(id);
         if (!m || !vozDeNota[id]) continue;
-        notas.push({ id, ms: m.time, durMs: m.duration, nota: m.pitch, vel: 80, voz: vozDeNota[id] });
+        notas.push({ id, ms: m.time, durMs: m.duration, nota: m.pitch, vel: 80, voz: vozDeNota[id], compas: this.compasDe[id] || 0 });
       }
     }
     this.notas = notas;
@@ -85,6 +91,9 @@ export class Reproductor {
     let svg = '';
     for (let p = 1; p <= this.tk.getPageCount(); p++) svg += this.tk.renderToSVG(p);
     this.cont.innerHTML = svg;
+    // color de cada nota cuando suena: el de su voz
+    const tono = Object.fromEntries(this.voces.map((v) => [v.id, v.nota]));
+    for (const n of this.notas) document.getElementById(n.id)?.style.setProperty('--vc', tono[n.voz]);
     this.encendidas = new Set();
     this._marcarApagadas();
   }
@@ -104,6 +113,23 @@ export class Reproductor {
       const lab = [...sg.children].find((c) => c.tagName === 'label');
       const sds = [...sg.children].filter((c) => c.tagName === 'staffDef');
       if (lab && sds.length === 1 && !nombres[sds[0].getAttribute('n')]) nombres[sds[0].getAttribute('n')] = lab.textContent.trim();
+    }
+    // número de compás de cada nota, total de compases (un silencio de varios compases cuenta entero) y tempo
+    this.compasDe = {}; this.numeroDe = {}; this.compases = 0;
+    for (const m of mei.getElementsByTagName('measure')) {
+      const n = parseInt(m.getAttribute('n'), 10) || this.compases + 1;
+      const mr = m.getElementsByTagName('multiRest')[0];
+      this.compases = Math.max(this.compases, n + (mr ? (parseInt(mr.getAttribute('num'), 10) || 1) - 1 : 0));
+      this.numeroDe[m.getAttribute('xml:id')] = n;
+      for (const nota of m.getElementsByTagName('note')) this.compasDe[nota.getAttribute('xml:id')] = n;
+    }
+    this.tempo = null;
+    for (const nombre of ['tempo', 'scoreDef']) {
+      for (const el of mei.getElementsByTagName(nombre)) {
+        const bpm = parseFloat(el.getAttribute('midi.bpm') || el.getAttribute('mm'));
+        if (bpm > 0) { this.tempo = Math.round(bpm); break; }
+      }
+      if (this.tempo) break;
     }
     const cuenta = {}; const capasDeNota = {}; const capasPorId = {};
     for (const layer of mei.getElementsByTagName('layer')) {
@@ -133,7 +159,7 @@ export class Reproductor {
         voces.push({ id: c, nombre: base + extra });
       });
     }
-    voces.forEach((v, i) => (v.color = COLORES[i % COLORES.length]));
+    voces.forEach((v, i) => Object.assign(v, colorVoz(TONOS[i % TONOS.length])));
     const vozDeNota = {};
     for (const [id, c] of Object.entries(capasDeNota)) vozDeNota[id] = destino[c];
     this.capas = {};
@@ -141,20 +167,25 @@ export class Reproductor {
     return { voces, vozDeNota };
   }
 
+  // Una voz que no se oye (silenciada, en volumen cero o tapada por un "solo") queda atenuada en la partitura.
+  seOye(id) { const v = this.audio.voces.get(id); return this.audio.esAudible(id) && (!v || v.vol > 0); }
   _marcarApagadas() {
     for (const [id, voz] of Object.entries(this.capas)) {
       const el = document.getElementById(id);
-      if (el) el.classList.toggle('apagada', this.seleccion != null && voz !== this.seleccion);
+      if (el) el.classList.toggle('apagada', !this.seOye(voz));
     }
+    for (const nid of this.encendidas) document.getElementById(nid)?.classList.remove('sonando');
+    this.encendidas = new Set();
   }
 
+  // Escuchar solo una voz (null = todas).
   elegirVoz(id) {
     this.seleccion = id;
     this.audio.soloUna(id);
     this._marcarApagadas();
-    for (const nid of this.encendidas) document.getElementById(nid)?.classList.remove('sonando');
-    this.encendidas = new Set();
   }
+  silenciar(id, si) { this.audio.silenciar(id, si); this._marcarApagadas(); }
+  volumen(id, vol) { this.audio.volumen(id, vol); this._marcarApagadas(); }
 
   // Marca las notas que suenan (solo las de la voz elegida) y sigue la partitura.
   _cursor() {
@@ -164,7 +195,7 @@ export class Reproductor {
       const ahora = new Set();
       if (this.audio.sonando() || t > 0) {
         for (const n of this.notas) {
-          if (t >= n.ms && t < n.ms + n.durMs && (this.seleccion == null || n.voz === this.seleccion)) ahora.add(n.id);
+          if (t >= n.ms && t < n.ms + n.durMs && this.seOye(n.voz)) ahora.add(n.id);
         }
       }
       let nueva = null;
@@ -183,10 +214,19 @@ export class Reproductor {
       const pr = padre.getBoundingClientRect();
       if (r.top < pr.top + 30 || r.bottom > pr.bottom - 30) padre.scrollBy({ top: r.top - pr.top - pr.height * 0.25, behavior: 'smooth' });
     } else {
-      const arriba = (document.querySelector('.cabecera')?.offsetHeight || 0) + 20;
-      const abajo = window.innerHeight - (document.querySelector('.reproductor')?.offsetHeight || 0) - 30;
+      // el aparato queda pegado arriba de la partitura: la nota tiene que quedar debajo de él
+      const dock = document.querySelector('.dock');
+      const arriba = (dock ? dock.getBoundingClientRect().bottom : 0) + 20;
+      const abajo = window.innerHeight - 30;
       if (r.top < arriba || r.bottom > abajo) window.scrollBy({ top: r.top - arriba - (abajo - arriba) * 0.2, behavior: 'smooth' });
     }
+  }
+
+  // Número del compás que suena en un momento dado
+  compasEn(ms) {
+    let n = this.inicios[0]?.n || 1;
+    for (const c of this.inicios) { if (c.ms > ms + 1) break; n = c.n; }
+    return n;
   }
 
   // MIDI de una voz (o de todas). Tempo fijo de 120 por minuto: 1 ms = 0,96 ticks (480 ticks por negra).

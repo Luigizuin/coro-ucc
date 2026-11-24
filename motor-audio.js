@@ -60,6 +60,8 @@ export class MotorAudio {
     for (const v of this.voces.values()) v.gain.gain.setTargetAtTime(this.audible(v) ? v.vol : 0, this.ctx.currentTime, 0.02);
   }
   soloUna(id) { for (const v of this.voces.values()) v.solo = id != null && v.id === id; this.aplicarGanancias(); }
+  silenciar(id, si) { const v = this.voces.get(id); if (v) { v.mute = si; this.aplicarGanancias(); } }
+  volumen(id, vol) { const v = this.voces.get(id); if (v) { v.vol = vol; this.aplicarGanancias(); } }
   esAudible(id) { const v = this.voces.get(id); return v ? this.audible(v) : true; }
 
   muestra(nota) {
